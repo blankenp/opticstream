@@ -15,7 +15,7 @@ from opticapi.project_state.oct_models import OCTBatchId
 from opticstream.state import OCT_STATE_SERVICE
 from opticstream.tasks.archive_file import archive_file
 from opticstream.hooks.slack_notification_hook import slack_notification_hook
-
+from opticstream.tasks.dandi_upload import upload_to_dandi_batch
 
 @task(
     on_completion=[publish_oct_mosaic_hook, publish_oct_project_hook],
@@ -73,6 +73,13 @@ def archive_tile_batch(
         extra_payload={"file_list": archived_file_paths},
     )
 
+    logger.info("Uploading archived batch files directly to DANDI for %s", batch_id)
+    upload_to_dandi_batch.fn(
+        file_list=archived_file_paths,
+        dandi_instance="dandi",
+        dandi_bin="/autofs/space/omega_002/users/miniforge3/envs/dandi/bin/dandi",
+        realpath=True,
+    )
 
 def check_archive_result(
     batch_id: OCTBatchId,
