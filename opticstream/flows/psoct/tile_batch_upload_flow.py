@@ -31,6 +31,7 @@ def upload_to_dandi_tile_batch(
     file_list: list[Path],
     *,
     dandi_instance: str = "linc",
+    dandi_bin: str = "dandi",
     realpath: bool = True,
     force_rerun: bool = False,
 ) -> None:
@@ -39,9 +40,11 @@ def upload_to_dandi_tile_batch(
         logger.warning("No files provided for %s", batch_id)
         return
     logger.info("Uploading %d files for %s", len(file_list), batch_id)
+    logger.info("Using dandi_instance=%s, dandi_bin=%s", dandi_instance, dandi_bin)
     upload_to_dandi_batch(
         file_list=[str(path) for path in file_list],
         dandi_instance=dandi_instance,
+        dandi_bin=dandi_bin,
         realpath=realpath,
     )
 
@@ -53,6 +56,8 @@ def upload_to_linc_batch_event_flow(payload: Dict[str, Any]) -> None:
         batch_id=batch_ident,
         file_list=path_list_from_payload(payload),
         force_rerun=force_rerun_from_payload(payload),
+        dandi_instance="dandi",
+        dandi_bin="/autofs/space/omega_002/users/miniforge3/envs/dandi/bin/dandi", # Hardcoded path for newer dandi-cli version required for DANDI upload
     )
 
 
