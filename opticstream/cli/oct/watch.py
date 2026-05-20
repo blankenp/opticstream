@@ -29,6 +29,9 @@ from opticstream.utils.filename_utils import (
 )
 from opticstream.utils.polling_watcher import PollingStableWatcher
 from opticstream.utils.refresh_disk import RefreshHook, resolve_refresh_hook
+import threading
+_MAX_DIRECT_THREADS = 6
+_DIRECT_THREAD_SEMAPHORE = threading.BoundedSemaphore(_MAX_DIRECT_THREADS)
 
 logger = logging.getLogger(__name__)
 
@@ -561,15 +564,27 @@ class OCTWatcherService:
             len(candidate.files),
         )
 
-        process_tile_batch(
-            batch_id=batch_ident,
-            config=self.scan_config,
-            file_list=list(candidate.files),
-            force_rerun=self.force_resend,
-        )
+        _DIRECT_THREAD_SEMAPHORE.acquire()
 
-        if self.refresh_hook is not None:
-            self.refresh_hook()
+        def _run_direct_batch() -> None:
+            try:
+                process_tile_batch(
+                    batch_id=batch_ident,
+                    config=self.scan_config,
+                    file_list=list(candidate.files),
+                    force_rerun=self.force_resend,
+                )
+
+                if self.refresh_hook is not None:
+                    self.refresh_hook()
+
+            finally:
+                _DIRECT_THREAD_SEMAPHORE.release()
+
+        threading.Thread(
+            target=_run_direct_batch,
+            daemon=True,
+        ).start()
 
         return 1
 
