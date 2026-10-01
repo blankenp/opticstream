@@ -127,6 +127,27 @@ def _parse_mosaic_ranges(mosaic_ranges_str: str) -> list[tuple[int, int]]:
     return out
 
 
+def _apply_batch_offset(
+    *,
+    local_batch: int,
+    batch_offset: int,
+    batches_per_slice: int,
+) -> tuple[int, int]:
+    """
+    Converts local batch numbering within the watched folder into:
+      - slice_carry: how many logical slices to advance
+      - logical_batch: 1-based batch/strip within the logical slice
+    """
+    if batches_per_slice < 1:
+        raise ValueError(f"batches_per_slice must be >= 1, got {batches_per_slice}")
+
+    zero_based = (local_batch - 1) + batch_offset
+    slice_carry = zero_based // batches_per_slice
+    logical_batch = (zero_based % batches_per_slice) + 1
+
+    return slice_carry, logical_batch
+
+
 @dataclass(frozen=True)
 class ParsedTileFile:
     path: Path
@@ -160,6 +181,7 @@ class OCTWatcherService:
         project_base_path: str,
         mosaic_ranges: list[tuple[int, int]],
         slice_offset: int,
+        batch_offset: int,
         batch_size: int,
         scan_config: PSOCTScanConfigModel,
         direct: bool,
@@ -173,6 +195,7 @@ class OCTWatcherService:
         self.project_base_path = project_base_path
         self.mosaic_ranges = mosaic_ranges
         self.slice_offset = slice_offset
+        self.batch_offset = batch_offset
         self.batch_size = batch_size
         self.scan_config = scan_config
         self.direct = direct
@@ -256,12 +279,19 @@ class OCTWatcherService:
                 if not tile_indices:
                     continue
 
-                batches: dict[int, list[int]] = defaultdict(list)
-                for image_index in sorted(tile_indices):
-                    logical_batch = (image_index - 1) // self.batch_size + 1
-                    batches[logical_batch].append(image_index)
+                batches: dict[tuple[int, int], list[int]] = defaultdict(list)
+                batches_per_slice = self.scan_config.acquisition.grid_size_x_normal // self.batch_size
 
-                for logical_batch, batch_tile_indices in sorted(batches.items()):
+                for image_index in sorted(tile_indices):
+                    local_batch = ((image_index - 1) // self.batch_size) + 1
+                    slice_carry, logical_batch = _apply_batch_offset(
+                        local_batch=local_batch,
+                        batch_offset=self.batch_offset,
+                        batches_per_slice=batches_per_slice,
+                    )
+                    batches[(slice_carry, logical_batch)].append(image_index)
+
+                for (slice_carry, logical_batch), batch_tile_indices in sorted(batches.items()):
                     if len(batch_tile_indices) < self.batch_size:
                         logger.warning(
                             "Incomplete batch source_mosaic=%s logical_batch=%s (%s tiles, need %s)",
@@ -299,7 +329,8 @@ class OCTWatcherService:
                             slice_offset=self.slice_offset,
                         )
                     )
-
+                    logical_slice_id += slice_carry
+                    logical_mosaic_id += slice_carry * self.scan_config.mosaics_per_slice
                     out.append(
                         OCTBatchCandidate(
                             source_slice_id=source_slice_id,
@@ -357,12 +388,19 @@ class OCTWatcherService:
             for pf in parsed_files:
                 files_by_tile[pf.tile_number].append(pf.path)
 
-            batches: dict[int, list[int]] = defaultdict(list)
-            for tile_number in sorted(files_by_tile.keys()):
-                logical_batch = (tile_number - 1) // self.batch_size + 1
-                batches[logical_batch].append(tile_number)
+            batches: dict[tuple[int, int], list[int]] = defaultdict(list)
+            batches_per_slice = self.scan_config.acquisition.grid_size_x_normal // self.batch_size
 
-            for logical_batch, batch_tile_numbers in sorted(batches.items()):
+            for tile_number in sorted(files_by_tile.keys()):
+                local_batch = ((tile_number - 1) // self.batch_size) + 1
+                slice_carry, logical_batch = _apply_batch_offset(
+                    local_batch=local_batch,
+                    batch_offset=self.batch_offset,
+                    batches_per_slice=batches_per_slice,
+                )
+                batches[(slice_carry, logical_batch)].append(tile_number)
+
+            for (slice_carry, logical_batch), batch_tile_numbers in sorted(batches.items()):
                 if len(batch_tile_numbers) < self.batch_size:
                     logger.warning(
                         "Incomplete batch source_mosaic=%s logical_batch=%s (%s tiles, need %s)",
@@ -396,6 +434,8 @@ class OCTWatcherService:
                     mosaics_per_slice=self.scan_config.mosaics_per_slice,
                     slice_offset=self.slice_offset,
                 )
+                logical_slice_id += slice_carry
+                logical_mosaic_id += slice_carry * self.scan_config.mosaics_per_slice
                 out.append(
                     OCTBatchCandidate(
                         source_slice_id=source_slice_id,
@@ -605,6 +645,7 @@ def watch_oct(
     project_base_path: str,
     mosaic_ranges: list[tuple[int, int]],
     slice_offset: int,
+    batch_offset: int,
     batch_size: int,
     scan_config: PSOCTScanConfigModel,
     stability_seconds: int = 15,
@@ -620,6 +661,7 @@ def watch_oct(
         project_base_path=project_base_path,
         mosaic_ranges=mosaic_ranges,
         slice_offset=slice_offset,
+        batch_offset=batch_offset,
         batch_size=batch_size,
         scan_config=scan_config,
         direct=direct,
@@ -647,6 +689,7 @@ def watch(
     mosaic_ranges: str = "1:999999",
     *,
     slice_offset: int = 0,
+    batch_offset: int = 0,
     stability_seconds: int = 15,
     poll_interval: int = 5,
     direct: bool = True,
@@ -695,6 +738,7 @@ def watch(
         project_base_path=project_base_path,
         mosaic_ranges=_parse_mosaic_ranges(mosaic_ranges),
         slice_offset=slice_offset,
+        batch_offset=batch_offset,
         batch_size=batch_size,
         scan_config=scan_config,
         stability_seconds=stability_seconds,

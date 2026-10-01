@@ -10,7 +10,7 @@ dependencies = [
     "nifti-zarr @ git+https://github.com/calvinchai/nifti-zarr-py.git@12336420beaa023cbdd9d9e5c24e3c115687fe9a",
     "psoct-toolbox @ git+https://github.com/calvinchai/psoct-toolbox.git@5182337044d2b7f8337ca205a33c9da3ddd69bda",
     "matplotlib>=3.10.8",
-    "prefect[shell,slack,sqlalchemy,redis]>=3.6.20",
+    "prefect[shell,slack,sqlalchemy,redis]==3.6.20",
     "watchdog>=4",
     "psutil>=6",
     "pystray>=0.19",
