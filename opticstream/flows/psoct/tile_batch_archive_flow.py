@@ -48,7 +48,7 @@ def archive_tile_batch(
         output_name = archive_tile_name_format.format(
             project_name=batch_id.project_name,
             slice_id=batch_id.slice_id,
-            tile_id=ref.tile_number,
+            tile_id=batch_id.batch_id,
             acq=acquisition_label,
         )
         output_path = archive_path / output_name
