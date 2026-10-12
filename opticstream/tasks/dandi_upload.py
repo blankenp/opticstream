@@ -21,6 +21,9 @@ from opticstream.config.constants import (
     DANDI_INSTANCE,
 )
 
+# Default location for DANDI CLI state and logs.
+# Keep these off the home filesystem to avoid filling quota usage.
+DEFAULT_DANDI_STATE_HOME = "/autofs/space/zircon_005/users/dandi_state"
 
 def build_dandi_upload_command(
     file_list: List[str],
@@ -69,22 +72,43 @@ def _build_dandi_upload_env(
     """
     Build environment variables required by the DANDI/LINC CLI.
 
-    Kept as a helper so both single-file and batch upload implementations
-    share identical secret loading and env setup.
+    Redirect DANDI CLI state/log files away from the home directory.
+    The location can be overridden using OPTICSTREAM_DANDI_STATE_HOME.
     """
-    if dandi_instance == "linc":
-        api_key = Secret.load(LINC_API_TOKEN_BLOCK_NAME, validate=False).get()
-        return {
-            "LINC_API_KEY": api_key,
-            "DANDI_API_KEY": api_key,
-            "DANDI_DEVEL": "1",
-        }
 
-    api_key = Secret.load(DANDI_API_TOKEN_BLOCK_NAME, validate=False).get()
-    return {
-        "DANDI_API_KEY": api_key,
+    # Determine where DANDI should write its state/log files.
+    dandi_state_home = os.environ.get(
+        "OPTICSTREAM_DANDI_STATE_HOME",
+        DEFAULT_DANDI_STATE_HOME,
+    )
+
+    # Ensure the directory exists before launching DANDI.
+    os.makedirs(dandi_state_home, exist_ok=True)
+
+    # Environment variables passed to the DANDI subprocess.
+    env = {
+        "XDG_STATE_HOME": dandi_state_home,
         "DANDI_DEVEL": "1",
     }
+
+    if dandi_instance == "linc":
+        api_key = Secret.load(
+            LINC_API_TOKEN_BLOCK_NAME,
+            validate=False,
+        ).get()
+
+        env["LINC_API_KEY"] = api_key
+        env["DANDI_API_KEY"] = api_key
+
+    else:
+        api_key = Secret.load(
+            DANDI_API_TOKEN_BLOCK_NAME,
+            validate=False,
+        ).get()
+
+        env["DANDI_API_KEY"] = api_key
+
+    return env
 
 
 @task(tags=["dandi-upload"], retries=1)
