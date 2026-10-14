@@ -32,7 +32,7 @@ class LSMScanConfigModel(BaseModel):
     )
     output_format: Optional[str] = Field(
         default=(
-            "{project_name}_sample-slice{slice_id:02d}_chunk-{strip_id:04d}_acq-{acq}.ome.zarr"
+            "{project_name}_sample-slice{slice_id:03d}_chunk-{strip_id:04d}_acq-{acq}.ome.zarr"
         ),
         min_length=1,
     )
@@ -41,7 +41,7 @@ class LSMScanConfigModel(BaseModel):
     )
     output_mip_format: Optional[str] = Field(
         default=(
-            "{project_name}_sample-slice{slice_id:02d}_chunk-{strip_id:04d}_acq-{acq}_proc-mip.tiff"
+            "{project_name}_sample-slice{slice_id:03d}_chunk-{strip_id:04d}_acq-{acq}_proc-mip.tiff"
         ),
         min_length=1,
     )
@@ -65,6 +65,12 @@ class LSMScanConfigModel(BaseModel):
         default=500,
         ge=1,
         description="Rate limit for the archive process in MB/s",
+    )
+    delete_compressed_after_upload: bool = Field(
+        default=False,
+        description=(
+            "Delete local compressed LSM OME-Zarr outputs after successful DANDI upload."
+        ),
     )
     strip_cleanup_action: StripCleanupAction = Field(
         default=StripCleanupAction.RENAME,
