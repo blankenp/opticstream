@@ -118,6 +118,11 @@ def _run_lsm_deployment(payload: dict[str, Any], config: WorkerConfig) -> None:
     SPACE_AVAILABLE = True
     if SPACE_AVAILABLE:
         source_path = host_lsm_fs_path(payload['strip_path'])
+        source_acquisition_folder = source_path.parent.name
+        logger.info(
+            "LSM source acquisition folder: %s",
+            source_acquisition_folder,
+        )
         dest_base = config.process_cache_dir.rstrip("/") + "/"
         dest_path = os.path.join(dest_base, os.path.basename(str(source_path).rstrip("/")))
         cmd = _build_rclone_cmd(source_path, dest_path)
@@ -136,6 +141,7 @@ def _run_lsm_deployment(payload: dict[str, Any], config: WorkerConfig) -> None:
         "payload": {
             "strip_ident": task.lsm_strip_id.model_dump(),
             "strip_path": task.strip_path,
+            "source_acquisition_folder": source_acquisition_folder,
             "force_rerun": task.force_rerun,
         }
     }

@@ -49,6 +49,7 @@ from opticstream.utils.zarr_validation import (
 from opticstream.flows.lsm.strip_archive_flow import (
     archive_strip,
     check_archive_result,
+    remove_archived_source,
     invalid_path,
 )
 from opticstream.flows.lsm.strip_cleanup_flow import (
@@ -338,6 +339,7 @@ def process_strip(
     strip_path: str,
     scan_config: LSMScanConfigModel,
     force_rerun: bool = False,
+    source_acquisition_folder: Optional[str] = None,
 ) -> None:
     """
     Process a strip of a slice.
@@ -388,6 +390,13 @@ def process_strip(
     )
     strip_cleanup_action = scan_config.strip_cleanup_action
 
+    logger.info(
+        "LSM archive settings: path=%s, distributed=%s, rate_limit=%s MB/s",
+        archive_path,
+        scan_config.distribute_archive,
+        scan_config.archive_rate_limit,
+    )
+
     zarr_output_path = strip_zarr_output_path(strip_ident, scan_config)
     zarr_output_path = host_lsm_fs_path(zarr_output_path)
     zarr_output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -401,16 +410,41 @@ def process_strip(
     
     backup_path = None
     check_backup_future = None
+
     if archive_path is not None:
-        backup_path = host_lsm_fs_path(archive_path / strip_path.name)
+        if not source_acquisition_folder:
+            raise ValueError(
+                f"Missing source_acquisition_folder for {strip_ident}. "
+                "Cannot safely determine raw archive destination."
+            )
+
+        # Ensure the folder name is a single directory component.
+        if (
+            source_acquisition_folder in (".", "..")
+            or Path(source_acquisition_folder).name != source_acquisition_folder
+            or "\\" in source_acquisition_folder
+        ):
+            raise ValueError(
+                f"Invalid source_acquisition_folder: {source_acquisition_folder!r}"
+            )
+
+        backup_path = (
+            archive_path
+            / source_acquisition_folder
+            / strip_path.name
+        )
+
+        logger.info("Raw archive destination: %s", backup_path)
+
     if archive_path is not None and not scan_config.distribute_archive:
-        backup_path.parent.mkdir(parents=True, exist_ok=True)
         backup_future = archive_strip.submit(
             strip_ident=strip_ident,
             strip_path=os.fspath(strip_path),
             output_path=os.fspath(backup_path),
-            force_rerun=force_rerun
+            rate_limit_mb=scan_config.archive_rate_limit,
+            force_rerun=force_rerun,
         )
+
         check_backup_future = check_archive_result.submit(
             strip_ident=strip_ident,
             strip_path=os.fspath(strip_path),
@@ -499,17 +533,50 @@ def process_strip(
     if not success:
         raise RuntimeError(message)
 
-    if should_cleanup:
+    archive_validated = (
+        check_backup_future is not None
+        and backup_result.ok
+    )
+
+    # ============================================================
+    # CLEANUP ZIRCON STAGING DATA
+    # ============================================================
+
+    if should_cleanup and (
+        archive_path is None
+        or archive_validated
+        or (scan_config.distribute_archive and should_cleanup)
+    ):
         cleanup_future = run_cleanup_tasks(
             cleanup_action=strip_cleanup_action,
             strip_ident=strip_ident,
             strip_path=os.fspath(strip_path),
         )
+
         if cleanup_future:
             cleanup_future.wait()
 
-    return None
+    # ============================================================
+    # REMOVE ORIGINAL WILLOW D: DATA
+    # ============================================================
 
+    if (
+        success
+        and archive_validated
+        and not scan_config.distribute_archive
+        and source_acquisition_folder is not None
+    ):
+        remove_archived_source(
+            strip_ident=strip_ident,
+            source_acquisition_folder=source_acquisition_folder,
+            strip_folder_name=strip_path.name,
+            archive_validated=True,
+            processing_complete=True,
+            backup_path=os.fspath(backup_path),
+            dry_run=True,
+        )
+
+    return None
 
 @flow
 def process_strip_event(payload: Dict[str, Any]) -> None:
@@ -527,6 +594,7 @@ def process_strip_event(payload: Dict[str, Any]) -> None:
         strip_path=payload["strip_path"],
         scan_config=lsm_scan_config,
         force_rerun=force_rerun_from_payload(payload),
+        source_acquisition_folder=payload.get("source_acquisition_folder"),
     )
 
 

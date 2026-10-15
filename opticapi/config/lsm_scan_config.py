@@ -32,7 +32,7 @@ class LSMScanConfigModel(BaseModel):
     )
     output_format: Optional[str] = Field(
         default=(
-            "{project_name}_sample-slice{slice_id:02d}_chunk-{strip_id:04d}_acq-{acq}.ome.zarr"
+            "{project_name}_sample-slice{slice_id:03d}_chunk-{strip_id:04d}_acq-{acq}.ome.zarr"
         ),
         min_length=1,
     )
@@ -41,7 +41,7 @@ class LSMScanConfigModel(BaseModel):
     )
     output_mip_format: Optional[str] = Field(
         default=(
-            "{project_name}_sample-slice{slice_id:02d}_chunk-{strip_id:04d}_acq-{acq}_proc-mip.tiff"
+            "{project_name}_sample-slice{slice_id:03d}_chunk-{strip_id:04d}_acq-{acq}_proc-mip.tiff"
         ),
         min_length=1,
     )
