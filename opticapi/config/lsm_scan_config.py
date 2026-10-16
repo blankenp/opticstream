@@ -66,6 +66,12 @@ class LSMScanConfigModel(BaseModel):
         ge=1,
         description="Rate limit for the archive process in MB/s",
     )
+    delete_compressed_after_upload: bool = Field(
+        default=False,
+        description=(
+            "Delete local compressed LSM OME-Zarr outputs after successful DANDI upload."
+        ),
+    )
     strip_cleanup_action: StripCleanupAction = Field(
         default=StripCleanupAction.RENAME,
         description="How to handle the raw spooled strip after compression/backup: keep, rename into processed/, or delete",
