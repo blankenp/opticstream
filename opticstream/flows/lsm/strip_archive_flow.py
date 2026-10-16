@@ -163,35 +163,36 @@ def archive_strip(
             )
 
     ps_script = rf"""
-$ErrorActionPreference = 'Stop'
+    $ErrorActionPreference = 'Stop'
 
-$source = '{windows_source}'
-$destination = '{windows_destination}'
+    $source = '{windows_source}'
+    $destination = '{windows_destination}'
 
-try {{
+    try {{
 
-    if (-not (Test-Path -LiteralPath $source -PathType Container)) {{
-        throw "Source directory does not exist: $source"
+        if (-not (Test-Path -LiteralPath $source -PathType Container)) {{
+            throw "Source directory does not exist: $source"
+        }}
+
+        New-Item -ItemType Directory -Path $destination -Force | Out-Null
+
+        # Rate-limited Robocopy
+        & robocopy $source $destination /E /MT:4 /IORATE:600M /R:2 /W:2 /NP /NFL /NDL
+
+        $robocopyExitCode = $LASTEXITCODE
+
+        if ($robocopyExitCode -ge 8) {{
+            throw "Robocopy failed with exit code $robocopyExitCode"
+        }}
+
+        Write-Output "Robocopy completed successfully (exit code $robocopyExitCode)"
+        exit 0
     }}
-
-    New-Item -ItemType Directory -Path $destination -Force | Out-Null
-
-    & robocopy $source $destination /E /MT:8 /R:2 /W:2 /NP /NFL /NDL
-
-    $robocopyExitCode = $LASTEXITCODE
-
-    if ($robocopyExitCode -ge 8) {{
-        throw "Robocopy failed with exit code $robocopyExitCode"
+    catch {{
+        [Console]::Error.WriteLine($_.Exception.Message)
+        exit 1
     }}
-
-    Write-Output "Robocopy completed successfully (exit code $robocopyExitCode)"
-    exit 0
-}}
-catch {{
-    [Console]::Error.WriteLine($_.Exception.Message)
-    exit 1
-}}
-"""
+    """
 
     encoded = base64.b64encode(
         ps_script.encode("utf-16le")
